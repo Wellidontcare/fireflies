@@ -86,14 +86,14 @@ class FirefliesVisualizer:
     def frame(self):
         if(hello_imgui.get_runner_params().app_shall_exit == True):
             return
-        imgui.set_next_window_pos(imgui.ImVec2(0.0, 0.0))
+        imgui.set_next_window_pos(imgui.ImVec2(0.0, 20.0))
         w, h = imgui.get_io().display_size
-        imgui.set_next_window_size(imgui.ImVec2(w*0.6, h))
+        imgui.set_next_window_size(imgui.ImVec2(w*0.66, h*0.9))
         imgui.begin("Fireflies")
         if not self.x is None and not self.y is None:
             self.c = (128 + 128*np.cos(self.freq*self.t + self.phase)).astype(np.uint8)
             for i, (x, y) in enumerate(zip(self.x, self.y)):
-                if np.random.random() > 0.3:
+                if np.random.random() > 0.5:
                     continue
                 neighbours = self.neighbour_tree.query_ball_point((x, y), self.radius, 2)
                 self.phase[i] = self.phase[i]*self.phase_dampening + self.phase_step*np.mean(self.phase[neighbours])
@@ -110,7 +110,8 @@ class FirefliesVisualizer:
                 0x000000FF | (255 << 24))
             
         imgui.end()
-        imgui.set_next_window_pos(imgui.ImVec2(w*0.6, 0))
+        imgui.set_next_window_pos(imgui.ImVec2(w*0.66, 0))
+        imgui.set_window_size(imgui.ImVec2(0.33*w, 0.9*h))
         imgui.begin("Settings")
         reeval = False
         r1, self.count = imgui.slider_int("Count", self.count, 1, 5000)
@@ -139,11 +140,13 @@ class FirefliesVisualizer:
             self.freq = rng.random(self.x.shape)*self.mean_speed
             self.phase = rng.random(self.x.shape)
 
-
+def status():
+    imgui.text("Status Bar")
 if __name__ == "__main__":
     fireflies_visualizer = FirefliesVisualizer()
-    callbacks = hello_imgui.RunnerCallbacks(fireflies_visualizer.frame)
+    callbacks = hello_imgui.RunnerCallbacks(fireflies_visualizer.frame, show_status=status)
     fps_idling = hello_imgui.FpsIdling(200, enable_idling=False)
     appwindow_params = hello_imgui.AppWindowParams("Fireflies")
-    runner_params = hello_imgui.RunnerParams(callbacks, appwindow_params, fps_idling=fps_idling)
+    imgui_window_params = hello_imgui.ImGuiWindowParams(show_menu_bar=True, show_status_bar=True)
+    runner_params = hello_imgui.RunnerParams(callbacks, appwindow_params,imgui_window_params, fps_idling=fps_idling)
     hello_imgui.run(runner_params)
