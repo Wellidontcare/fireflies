@@ -1,11 +1,11 @@
 # import matplotlib.pyplot as plt
 import numpy as np
-from imgui_bundle import hello_imgui, imgui, immvision
-import cv2
+from imgui_bundle import hello_imgui, imgui
+from scipy.spatial import KDTree
 
 
-def xy_random_normal(count: int, sigma_x: float, sigma_y: float):
-    rng = np.random.default_rng(42)
+def xy_random_normal(count: int, sigma_x: float, sigma_y: float, seed: int):
+    rng = np.random.default_rng(seed)
     xy = rng.normal((0.0, 0.0), (sigma_x, sigma_y), (count, 2))
     return xy[:, 0], xy[:, 1]
 
@@ -57,49 +57,93 @@ def draw_fireflies(x, y, lightness):
                 cursor.x + x + window_size.x / 2, cursor.y + y + window_size.y / 2
             ),
             10,
-            0x000000FF | (c << 24),
+            0x000000FF | (c << 24) | (c << 8),
         )
 
 
 class FirefliesVisualizer:
     def __init__(self):
         self.canvas = np.zeros((1024, 1024))
-        self.image_params = immvision.ImageParams()
         self.count = 0
         self.x = None
         self.y = None
         self.c = None
         self.freq = None
+        self.phase = None
         self.sigma_x = 1
         self.sigma_y = 1
         self.mean_speed = 0.1
         self.t = 0
+        self.neighbour_tree = None
+        self.data = None
+        self.freq_dampening = 0.9
+        self.freq_step = 0.1
+        self.phase_dampening = 0.9
+        self.phase_step = 0.1
+        self.radius = 1
+        self.seed = 42
 
     def frame(self):
+        if(hello_imgui.get_runner_params().app_shall_exit == True):
+            return
+        imgui.set_next_window_pos(imgui.ImVec2(0.0, 0.0))
+        w, h = imgui.get_io().display_size
+        imgui.set_next_window_size(imgui.ImVec2(w*0.6, h))
         imgui.begin("Fireflies")
         if not self.x is None and not self.y is None:
-            self.c = (128 + 128*np.cos(self.freq*self.t)).astype(np.uint8)
+            self.c = (128 + 128*np.cos(self.freq*self.t + self.phase)).astype(np.uint8)
+            for i, (x, y) in enumerate(zip(self.x, self.y)):
+                if np.random.random() > 0.3:
+                    continue
+                neighbours = self.neighbour_tree.query_ball_point((x, y), self.radius, 2)
+                self.phase[i] = self.phase[i]*self.phase_dampening + self.phase_step*np.mean(self.phase[neighbours])
+                self.freq[i] = self.freq[i]*self.freq_dampening + self.freq_step*np.mean(self.freq[neighbours])
             draw_fireflies(self.x, self.y, self.c)
+            draw_list = imgui.get_window_draw_list()
+            window_size = imgui.get_window_size()
+            cursor = imgui.get_cursor_screen_pos()
+            draw_list.add_circle(
+                imgui.ImVec2(
+                    cursor.x + window_size.x / 2, cursor.y + window_size.y / 2
+                ),
+                self.radius,
+                0x000000FF | (255 << 24))
+            
         imgui.end()
+        imgui.set_next_window_pos(imgui.ImVec2(w*0.6, 0))
         imgui.begin("Settings")
         reeval = False
-        r1, self.count = imgui.slider_int("Count", self.count, 1, 500)
+        r1, self.count = imgui.slider_int("Count", self.count, 1, 5000)
         r2, self.sigma_x = imgui.slider_int("Sigma X", self.sigma_x, 1, 500)
         r3, self.sigma_y = imgui.slider_int("Sigma Y", self.sigma_y, 1, 500)
         r4, self.mean_speed = imgui.slider_float("Frequency", self.mean_speed, 0.001, 1)
-        reeval = r1 or r2 or r3 or r4
+        r5, self.freq_dampening = imgui.slider_float("Frequency Dampening", self.freq_dampening, 0.001, 1)
+        if r5:
+            self.freq_step = 1 - self.freq_dampening
+        r7, _ = imgui.slider_float("Frequency Step", self.freq_step, 0.001, 1)
+        r8, self.phase_dampening = imgui.slider_float("Phase Dampening", self.phase_dampening, 0.001, 1)
+        if r8:
+            self.phase_step = 1 - self.phase_dampening
+        r6, _ = imgui.slider_float("Phase Step", self.phase_step, 0.001, 1)
+        r9, self.radius = imgui.slider_float("Radius", self.radius, 0.001, 500)
+        r10, self.seed = imgui.slider_int("Random Seed", self.seed, 1, 1024)
+        reeval = any([r1, r2, r3, r4, r5, r6, r7, r8, r9, r10])
         imgui.end()
         self.t += 1
         if reeval:
-            self.x, self.y = xy_random_normal(self.count, self.sigma_x, self.sigma_y)
+            self.x, self.y = xy_random_normal(self.count, self.sigma_x, self.sigma_y, self.seed)
+            self.data = np.stack((self.x, self.y), axis=1)
+            self.neighbour_tree = KDTree(data=self.data, leafsize=25)
             self.c = np.zeros_like(self.x).astype(np.uint8)
-            self.freq = np.random.random(self.x.shape)*self.mean_speed
+            rng = np.random.default_rng(self.seed)
+            self.freq = rng.random(self.x.shape)*self.mean_speed
+            self.phase = rng.random(self.x.shape)
 
 
 if __name__ == "__main__":
     fireflies_visualizer = FirefliesVisualizer()
     callbacks = hello_imgui.RunnerCallbacks(fireflies_visualizer.frame)
-    fps_idling = hello_imgui.FpsIdling(30, enable_idling=False)
+    fps_idling = hello_imgui.FpsIdling(200, enable_idling=False)
     appwindow_params = hello_imgui.AppWindowParams("Fireflies")
     runner_params = hello_imgui.RunnerParams(callbacks, appwindow_params, fps_idling=fps_idling)
     hello_imgui.run(runner_params)
